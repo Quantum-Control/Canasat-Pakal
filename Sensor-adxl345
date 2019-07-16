@@ -1,0 +1,192 @@
+# ADXL345 Python library for Raspberry Pi 
+#
+# 
+# license: BSD, see LICENSE.txt included in this package
+# 
+# This is a Raspberry Pi Python implementation to help you get started with
+# the Adafruit Triple Axis ADXL345 breakout board:
+
+
+import smbus
+from time import sleep
+import math
+
+# select the correct i2c bus for this revision of Raspberry Pi
+revision = ([l[12:-1] for l in open('/proc/cpuinfo','r').readlines() if l[:8]=="Revision"]+['0000'])[0]
+bus = smbus.SMBus(1 if int(revision, 16) >= 4 else 0)
+
+# ADXL345 constants
+EARTH_GRAVITY_MS2   = 9.80665
+SCALE_MULTIPLIER    = 0.004
+
+DATA_FORMAT         = 0x31
+BW_RATE             = 0x2C
+POWER_CTL           = 0x2D
+
+BW_RATE_1600HZ      = 0x0F
+BW_RATE_800HZ       = 0x0E
+BW_RATE_400HZ       = 0x0D
+BW_RATE_200HZ       = 0x0C
+BW_RATE_100HZ       = 0x0B
+BW_RATE_50HZ        = 0x0A
+BW_RATE_25HZ        = 0x09
+
+RANGE_2G            = 0x00
+RANGE_4G            = 0x01
+RANGE_8G            = 0x02
+RANGE_16G           = 0x03
+
+MEASURE             = 0x08
+AXES_DATA           = 0x32
+
+class ADXL345:
+
+    address = 0x53
+
+    def __init__(self, address = 0x53):        
+        self.address = address
+        self.setBandwidthRate(BW_RATE_100HZ)
+        self.setRange(RANGE_2G)
+        self.enableMeasurement()
+        
+        self.ACRaw=[0,0,0]
+        self.Gval=[0,0,0]
+        self.INTval=[0,0,0]
+        self.dAxis=[0,0,0]
+        self.thresholdAxis=[0,0,0]
+        self.t=[0,0,0]
+        self.actualthreshold=0
+        
+        self.useCalibrate=False
+
+    def enableMeasurement(self):
+        bus.write_byte_data(self.address, POWER_CTL, MEASURE)
+
+    def setBandwidthRate(self, rate_flag):
+        bus.write_byte_data(self.address, BW_RATE, rate_flag)
+
+    # set the measurement range for 10-bit readings
+    def setRange(self, range_flag):
+        value = bus.read_byte_data(self.address, DATA_FORMAT)
+
+        value &= ~0x0F;
+        value |= range_flag;  
+        value |= 0x08;
+
+        bus.write_byte_data(self.address, DATA_FORMAT, value)
+    
+    # returns the current reading from the sensor for each axis
+    #
+    # parameter gforce:
+    #    False (default): result is returned in m/s^2
+    #    True           : result is returned in gs
+    
+    def Read_Raw(self):
+        
+        bytes = bus.read_i2c_block_data(self.address, AXES_DATA, 6)
+        
+        x = bytes[0] | (bytes[1] << 8)
+        if(x & (1 << 16 - 1)):
+            x = x - (1<<16)
+
+        y = bytes[2] | (bytes[3] << 8)
+        if(y & (1 << 16 - 1)):
+            y = y - (1<<16)
+                                                                                                                                                                                                                                                        
+        z = bytes[4] | (bytes[5] << 8)
+        if(z & (1 << 16 - 1)):
+            z = z - (1<<16)
+            
+        self.ACRaw[0]=x
+        self.ACRaw[1]=y
+        self.ACRaw[2]=z
+        
+    def Read_g(self):
+        self.Read_Raw()
+        
+      
+            
+        self.Gval[0]=self.ACRaw[0]*SCALE_MULTIPLIER
+        self.Gval[1]=self.ACRaw[1]*SCALE_MULTIPLIER
+        self.Gval[2]=self.ACRaw[2]*SCALE_MULTIPLIER
+        
+    def Read_INTval(self):
+        self.Read_Raw()
+        
+        if self.useCalibrate==True:
+            self.INTval[0]=(self.ACRaw[0]-self.dAxis[0])*SCALE_MULTIPLIER*EARTH_GRAVITY_MS2
+            self.INTval[1]=(self.ACRaw[1]-self.dAxis[1])*SCALE_MULTIPLIER*EARTH_GRAVITY_MS2
+            self.INTval[2]=(self.ACRaw[2]-self.dAxis[2])*SCALE_MULTIPLIER*EARTH_GRAVITY_MS2
+        else:
+            self.INTval[0]=self.ACRaw[0]*SCALE_MULTIPLIER*EARTH_GRAVITY_MS2
+            self.INTval[1]=self.ACRaw[1]*SCALE_MULTIPLIER*EARTH_GRAVITY_MS2
+            self.INTval[2]=self.ACRaw[2]*SCALE_MULTIPLIER*EARTH_GRAVITY_MS2
+        
+        if self.actualthreshold >0:
+            
+            if abs(self.INTval[0])< self.t[0]:
+                self.INTval[0]=0
+                
+            if abs(self.INTval[1])< self.t[1]:
+                self.INTval[1]=0
+            
+            if abs(self.INTval[2])< self.t[2]:
+                self.INTval[2]=0
+            
+    def Get_RAW(self):
+        return self.ACRaw[0],self.ACRaw[1],self.ACRaw[2]
+    def Get_IT(self):
+        return self.INTval[0],self.INTval[1],self.INTval[2]
+    
+    def Calibrate(self,Samples):
+        self.useCalibrate = True
+        
+        sumX=0
+        sumY=0
+        sumZ=0
+        
+        sigmaX=0
+        sigmaY=0
+        sigmaZ=0
+        
+        for i in range(Samples):
+            self.Read_Raw()
+         #   sumX+=self.ACRaw[0]
+            sumY+=self.ACRaw[1]
+            sumZ+=self.ACRaw[2]
+            
+           # sigmaX+=self.ACRaw[0]*self.ACRaw[0]
+            sigmaY+=self.ACRaw[1]*self.ACRaw[1]
+            sigmaZ+=self.ACRaw[2]*self.ACRaw[2]
+      #  self.dAxis[0]=sumX/Samples
+        self.dAxis[1]=sumY/Samples
+        self.dAxis[2]=sumZ/Samples
+        
+        
+        #self.thresholdAxis[0]=math.sqrt((sigmaX/Samples)-(self.dAxis[0]*self.dAxis[0]))
+        self.thresholdAxis[1]=math.sqrt((sigmaY/Samples)-(self.dAxis[1]*self.dAxis[1]))
+        self.thresholdAxis[2]=math.sqrt((sigmaZ/Samples)-(self.dAxis[2]*self.dAxis[2]))
+        
+        if self.actualthreshold>0:
+            self.Set_Threshold(self.actualthreshold)
+            
+    def Set_Threshold(self,multiple):
+        
+        if multiple>0:
+            if self.useCalibrate==False:
+                self.Calibrate()
+            
+          #  self.t[0]=self.threshold[0]*multiple
+            self.t[1]=self.threshold[1]*multiple
+            self.t[2]=self.threshold[2]*multiple
+            
+        else:
+                
+            self.t[0]=0
+            self.t[1]=0
+            self.t[2]=0
+                
+             
+        self.actualthreshold=multiple
+        
+
