@@ -1,0 +1,15 @@
+import smbus
+import time
+
+bus = smbus.SMBus(1)
+addrees = 0x04
+
+def readList(self):
+    bytes = bus.read_byte_data(addres,0,3)
+    return bytes
+
+while True:
+    time.sleep(0.5)
+    bytes = readList()
+    print"rpi recibiendo de arduino: ", number
+    
