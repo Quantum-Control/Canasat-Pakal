@@ -1,0 +1,57 @@
+import serial
+import time
+from adxl345 import ADXL345
+from L3G200D import L3G4200D
+from adxl345 import ADXL345
+from IMU import IMU
+from bmp280 import BMP280
+import smbus
+import math
+from datetime import datetime
+
+
+bus=smbus.SMBus(1)
+ser=serial.Serial('/dev/ttyS0',9600)
+Acel=ADXL345()
+Acel.Calibrate(1500)
+Inercial=IMU()
+bmp280 = BMP280(i2c_dev=bus)
+baseline_values = []
+baseline_size = 100
+for i in range(baseline_size):
+    pressure = bmp280.get_pressure()
+    baseline_values.append(pressure)
+    
+
+baseline = sum(baseline_values[:-25]) / len(baseline_values[:-25])
+
+
+
+while 1:
+    #while True:
+       # try:
+        #    Acel.Read_INTval()
+         #   Inercial.Calculate_Angle()
+            
+     #       break
+     #   except
+       #     print('REINICIANDO')
+    Acel.Read_INTval()
+    Inercial.Calculate_Angle()    
+    t=bmp280.get_temperature()
+    p=bmp280.get_pressure()
+    altit = bmp280.get_altitude(qnh=baseline)
+    accx,accy,accz=Acel.Get_IT()
+    degx,degy=Inercial.Get_Angle()
+    
+    ser.write("%lf \n" %(t))
+    ser.write('%lf \n' %(p))
+    ser.write('%lf \n' %(altit))
+    ser.write('%lf \n' %(accx))
+    ser.write('%lf \n' %(accy))
+    ser.write('%lf \n' %(accz))
+    ser.write('%lf \n' %(degx))
+    ser.write('%lf \n' %(degy))
+    
+    
+    
